@@ -1,0 +1,338 @@
+Ext.define("Eagle.controller.principal.TabEvento", {
+    extend: "Ext.app.Controller",
+    models: ["Posicao"],
+    stores: [],
+    views: ["principal.TabEvento"],
+    
+    refs: [{
+        ref: "tabPanel",
+        selector: "principal > tabpanel"
+    },{
+        ref: "mapa",
+        selector: "principal > panel[region=center] > mapa"
+    }],
+    
+    init: function(){
+        this.control({
+            "tabevento": {
+                tabeventoclose: this.onTabClose
+            },
+            "tabevento > toolbar > button[action=recarregar]": {
+                buttonclick: this.onReloadButtonClick
+            },
+            "tabevento > toolbar > button[action=filtrar]": {
+                buttonclick: this.onFiltrarButtonClick
+            },
+            "tabevento > toolbar > datefield[name=data]": {
+                dataselect: this.carregarPosicoesEventos
+            },
+            "tabevento > toolbar > button[action=limparFiltro]": {
+                buttonclick: this.onLimparFiltroButtonClick
+            },
+            "tabevento > panel[region=center] > grid[itemId=posicoesGrid]": {
+                posicoesmouseenter: this.onPosicoesMouseEnter,
+                posicoesmouseleave: this.onPosicoesMouseLeave,
+                posicoesselect: this.onPosicoesSelect,
+                posicoesdeselect: this.onPosicoesDeselect
+            },
+            "tabevento > panel[region=center] > grid[itemId=eventosGrid]": {
+                eventosexpandbody: this.onEventosExpandBody,
+                eventosselect: this.onEventosSelect,
+                eventosdeselect: this.onEventosDeselect
+            }
+        });
+    },
+    
+    carregarPosicoesEventos: function(comp, idTab, value){
+    	var me = this,
+    		tabpanel = me.getTabPanel(),
+    		tab = tabpanel.getComponent(idTab),
+    		data = Ext.Date.format(value, "d-m-Y"),
+    		posicoesGrid,
+    		eventosGrid,
+    		diaAnterior;
+    	
+    	if(!tab)
+    		return null;
+    	
+    	posicoesGrid = tab.down("grid[itemId=posicoesGrid]").getStore();
+    	eventosGrid = tab.down("grid[itemId=eventosGrid]").getStore();
+    	
+    	diaAnterior = tab.down("toolbar > checkbox[name=diaanterior]").getValue();
+    	
+    	posicoesGrid.getProxy().extraParams.data = data;
+    	posicoesGrid.getProxy().extraParams.diaAnterior = diaAnterior;
+    	
+    	eventosGrid.getProxy().extraParams.data = data;
+    	eventosGrid.getProxy().extraParams.diaAnterior = diaAnterior;
+    	
+    	posicoesGrid.load();
+    	eventosGrid.load();
+    },
+    
+    onReloadButtonClick: function(comp, idTab){
+        var me = this,
+            tabpanel = me.getTabPanel(),
+            tab = tabpanel.getComponent(idTab),
+            posicoesStore,
+            eventosStore;
+        
+        posicoesStore = tab.down("grid[itemId=posicoesGrid]").getStore();
+        eventosStore = tab.down("grid[itemId=eventosGrid]").getStore();
+        
+        posicoesStore.load();
+        eventosStore.load();
+    },
+    
+    onFiltrarButtonClick: function(comp, idTab){
+        var me = this,
+            tabpanel = me.getTabPanel(),
+            tab = tabpanel.getComponent(idTab),
+            horaIni,
+            horaFim,
+            filtroIni,
+            filtroFim,
+            filtro;
+        
+        if(!tab)
+            return null;
+        
+        data = tab.down("toolbar > datefield[name=data]").getValue();
+        horaIni = tab.down("toolbar > timefield[name=horaIni]").getValue();
+        horaFim = tab.down("toolbar > timefield[name=horaFim]").getValue();
+	
+	if(horaIni === null || horaFim === null){
+		horaIni = Ext.Date.format(horaIni, "H:i");
+		horaFim = Ext.Date.format(horaFim, "H:i");
+		
+		filtroIni = Ext.Date.parse(Ext.String.format("{0} {1}", data, horaIni), "d/m/Y H:i");
+		filtroFim = Ext.Date.parse(Ext.String.format("{0} {1}", data, horaFim), "d/m/Y H:i");
+		
+		filtro = new Ext.util.Filter({
+		    filterFn: function(item){
+		        var dataHora = item.get("dataHora");
+		    
+		        if(dataHora >= filtroIni && dataHora <= filtroFim)
+		            return true;
+		        else
+		            return false;
+		    }
+		});
+		tab.adicionarFiltro(filtro);
+	}else{
+		tab.removerFiltro();
+	}
+    },
+    
+    onLimparFiltroButtonClick: function(comp, idTab){
+        var me = this,
+            tabpanel = me.getTabPanel(),
+            tab = tabpanel.getComponent(idTab),
+            horaIni,
+            horaFim;
+        
+        if(!tab)
+            return null;
+        
+        horaIni = tab.down("toolbar > timefield[name=horaIni]");
+        horaFim = tab.down("toolbar > timefield[name=horaFim]");
+        
+        horaIni.setValue(null);
+        horaFim.setValue(null);
+        
+        tab.removerFiltro();
+    },
+    
+    onPosicoesMouseEnter: function(comp, idTab, record){
+        var me = this,
+            mapa = me.getMapa(),
+            tabpanel = me.getTabPanel(),
+            tab = tabpanel.getComponent(idTab),
+            idPolyline = idTab.replace("tab_", ""),
+            idMarker = "posicao_" + idPolyline + "_" + record.get("dataHora").toString(),
+            viewGrid,
+            eventoRow,
+            eventosStore,
+            eventoRecord;
+        
+        if(!tab)
+            return null;
+        
+        eventosStore = tab.down("grid[itemId=eventosGrid]").getStore();
+        viewGrid = tab.down("grid[itemId=eventosGrid]").getView();
+        
+        eventoRecord = eventosStore.getAt(eventosStore.find("dataHora", record.get("dataHora")));
+        
+        eventoRow = viewGrid.getRow(eventoRecord);
+        
+        if(eventoRow)
+            eventoRow.scrollIntoView();
+        
+        mapa.bounceMarker(idMarker, true);
+        
+        return null;
+    },
+    
+    onPosicoesMouseLeave: function(comp, idTab, record){
+        var me = this,
+            mapa = me.getMapa(),
+            tabpanel = me.getTabPanel(),
+            tab = tabpanel.getComponent(idTab),
+            idPolyline = idTab.replace("tab_", ""),
+            idMarker = "posicao_" + idPolyline + "_" + record.get("dataHora").toString();
+    
+        if(!tab)
+            return null;
+        
+        mapa.bounceMarker(idMarker, false);
+    },
+    
+    onPosicoesSelect: function(comp, idTab, record){
+        var me = this,
+            mapa = me.getMapa(),
+            placa = idTab.replace("tab_", ""),
+            idPolyline = "posicao_" + placa,
+            idMarker = "posicao_" + placa + "_" + record.get("dataHora").toString(),
+            polyline,
+            marker,
+            icone,
+            info;
+        
+        polyline = mapa.getPolyline(idPolyline);
+        
+        if(!polyline)
+            polyline = mapa.addPolyline({
+                id: idPolyline,
+                strokeColor: "#00b3fd",
+                strokeOpacity: 1.0,
+                strokeWeight: 5
+            });
+        
+        polyline.addPosition({
+            lat: record.get("latitude"),
+            lng: record.get("longitude")
+        });
+        
+        marker = mapa.getMarker(idMarker);
+        
+        if(!marker){
+            
+            icone = {
+                url: 'resources/images/mapa_icons/Create.php'
+                        +'?vel='+record.get("velocidade")
+                        +'&ang='+record.get("angulo")
+                        +'&ign='+record.get("ignicao")
+                        +'&pt=true',
+                anchor: mapa.createPoint(9, 9)
+            };
+
+            info = '<b>Data:</b> '+Ext.Date.format(record.get("dataHora"), "d/m/y H:i")+'<br>'
+                    +'<b>Velocidade:</b> '+record.get("velocidade")+' km/h<br>';
+
+            marker = mapa.addMarkerRoute({
+                lat: record.get("latitude"),
+                lng: record.get("longitude"),
+                id: idMarker,
+                icon: icone
+            }, info);
+            
+        }
+    },
+    
+    onPosicoesDeselect: function(comp, idTab, record){
+        var me = this,
+            mapa = me.getMapa(),
+            placa = idTab.replace("tab_", ""),
+            idPolyline = "posicao_" + placa,
+            idMarker = "posicao_" + placa + "_" + record.get("dataHora").toString(),
+            polyline;
+        
+        polyline = mapa.getPolyline(idPolyline);
+        
+        if(!polyline)
+            return null;
+        
+        polyline.clearPositions();
+        
+        mapa.removerMarker(idMarker);
+    },
+    
+    onEventosExpandBody: function(comp, idTab, record){
+        Ext.Ajax.request({
+            url: "php/eventos.php?action=getLocalRef",
+            method: "POST",
+            async: true,
+            params: {
+                latitude: record.get("latitude"),
+                longitude: record.get("longitude")
+            },
+            callback: function(comp, success, response){
+                var res = Ext.decode(response.responseText);
+                if(res.success){
+                    record.set({
+                        localizacao: res.data.localizacao,
+                        referencia: res.data.referencia
+                    });
+                }
+            }
+        });
+    },
+    
+    onEventosSelect: function(comp, idTab, record){
+        var me = this,
+            mapa = me.getMapa(),
+            placa = idTab.replace("tab_", ""),
+            idMarker = "evento_" + placa + "_" + record.get("dataHora").toString(),
+            marker,
+            icone,
+            info;
+        
+        marker = mapa.getMarker(idMarker);
+        
+        if(!marker){
+            
+            icone = {
+                url: 'resources/images/16/android-location.png',
+                anchor: mapa.createPoint(9, 9)
+            };
+
+            info = '<b>Data:</b> '+Ext.Date.format(record.get("dataHora"), "d/m/y H:i")+'<br/>'
+                    +'<b>Descri\E7\E3o:</b>'+record.get("descricao");
+
+            marker = mapa.addMarker({
+                lat: record.get("latitude"),
+                lng: record.get("longitude"),
+                id: idMarker,
+                icon: icone
+            }, info);
+            
+        }
+    },
+    
+    onEventosDeselect: function(comp, idTab, record){
+        var me = this,
+            mapa = me.getMapa(),
+            placa = idTab.replace("tab_", ""),
+            idMarker = "evento_" + placa + "_" + record.get("dataHora").toString();
+        
+        mapa.removerMarker(idMarker);
+    },
+    
+    onTabClose: function(comp, idTab){
+        var me = this,
+            mapa = me.getMapa(),
+            placa = idTab.replace("tab_", ""),
+            padraoMarkerPosicao = "posicao_" + placa,
+            padraoMarkerEvento = "evento_" + placa,
+            idPolyline = "posicao_" + placa,
+            polyline;
+        
+        polyline = mapa.getPolyline(idPolyline);
+        
+        if(polyline)
+            polyline.clearPositions();
+        
+        mapa.removerAllMarkers(padraoMarkerPosicao);
+        mapa.removerAllMarkers(padraoMarkerEvento);
+    }
+});
